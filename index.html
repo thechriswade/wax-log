@@ -804,6 +804,8 @@
 
     var savedToSheet = false;
     var errorMsg = null;
+    var placedAlphabetically = false;
+    var sortFallbackReason = null;
 
     if (clientId && sheetId) {
       try {
@@ -816,8 +818,10 @@
           var existingArtists = await getExistingArtists(sheetId, token, info.title);
           insertIndex = await computeInsertIndex(existingArtists, values.artist, els.anthropicKeyInput.value.trim());
           await insertRowAtPosition(sheetId, token, info.gid, info.title, insertIndex, values);
+          placedAlphabetically = true;
         } catch (sortErr) {
           // Alphabetical placement failed for some reason (e.g. couldn't compute position) -- fall back to a plain append so the record isn't lost.
+          sortFallbackReason = sortErr.message;
           await appendRowToSheet(sheetId, token, info.title, values);
         }
         savedToSheet = true;
@@ -830,7 +834,10 @@
     els.copyBtn.textContent = 'Copy row for the sheet';
 
     if (savedToSheet) {
-      showStatus(els.saveStatus, 'ok', '\u2713 Added \u201c' + escapeHtml(values.album_name) + '\u201d directly to your Google Sheet.');
+      var placementNote = placedAlphabetically
+        ? ' \u2014 placed alphabetically by artist.'
+        : ' \u2014 added at the bottom instead of alphabetically (' + escapeHtml(sortFallbackReason || 'unknown reason') + ').';
+      showStatus(els.saveStatus, 'ok', '\u2713 Added \u201c' + escapeHtml(values.album_name) + '\u201d to your Google Sheet' + placementNote);
       await appendToLog(values, true);
       setTimeout(function(){
         els.formCard.style.display = 'none';
