@@ -353,6 +353,10 @@
       <p class="card-title">Confirm the details</p>
       <p class="card-sub">Everything's editable &mdash; fix anything the AI got wrong before copying.</p>
 
+      <label class="field-label">File under</label>
+      <input type="text" id="fileUnderInput" placeholder="e.g. Bowie, or Beatles">
+      <div class="hint">The word/name this gets alphabetized by. Pre-filled with a guess &mdash; override it any time to control exactly where it lands.</div>
+
       <div class="field-grid" id="formFields"></div>
 
       <button class="btn-primary" id="copyBtn" style="margin-top:14px">Copy row for the sheet</button>
@@ -412,6 +416,7 @@
     identifyErrorBody: document.getElementById('identifyErrorBody'),
     formCard: document.getElementById('formCard'),
     formFields: document.getElementById('formFields'),
+    fileUnderInput: document.getElementById('fileUnderInput'),
     copyBtn: document.getElementById('copyBtn'),
     doneBtn: document.getElementById('doneBtn'),
     saveStatus: document.getElementById('saveStatus'),
@@ -503,14 +508,18 @@
     return (data.values || []).map(function(row){ return (row[0] || '').trim(); }).filter(Boolean);
   }
 
-  async function computeInsertIndex(existingArtists, newArtist, apiKey){
+  async function computeInsertIndex(existingArtists, newArtist, apiKey, fileUnderOverride){
     if (!existingArtists.length) return 0;
     var listText = existingArtists.map(function(a, i){ return (i+1) + '. ' + a; }).join('\n');
+    var overrideClause = fileUnderOverride
+      ? "\nIMPORTANT: The correct filing name for the new artist has already been determined to be \"" + fileUnderOverride + "\". Use this exact filing name for the new artist rather than working it out yourself \u2014 just apply the same sorting rule to each EXISTING artist to find where \"" + fileUnderOverride + "\" belongs alphabetically among them.\n"
+      : "";
     var prompt = "You are alphabetizing a vinyl record collection by artist, in the order rows currently appear in a spreadsheet.\n\n" +
       "Sorting rule:\n" +
       "- Ignore a leading \"The\" in a band/group name (e.g. \"The Beatles\" sorts as \"Beatles\", under B).\n" +
       "- For an individual musician performing under their own name, sort by their LAST name (e.g. \"David Bowie\" sorts under B for Bowie; \"Frank Zappa\" sorts under Z for Zappa).\n" +
-      "- For bands, groups, duos, or any act not a single person's own name, sort by the group's name (minus a leading \"The\"), never by a member's surname.\n\n" +
+      "- For bands, groups, duos, or any act not a single person's own name, sort by the group's name (minus a leading \"The\"), never by a member's surname.\n" +
+      overrideClause + "\n" +
       "Existing artists, in their current order:\n" + listText + "\n\n" +
       "New artist to insert: \"" + newArtist + "\"\n\n" +
       "Respond with ONLY a JSON object: {\"insert_index\": N} where N is the 0-based position BEFORE which the new artist should be inserted (0 means before the first artist in the list; " + existingArtists.length + " means after the last). Pick the position that keeps the list correctly alphabetized per the rule above, assuming the existing list is already correctly ordered by that rule.";
@@ -604,9 +613,17 @@
   async function saveLog(log){
     localStorage.setItem('wax_log_entries', JSON.stringify(log));
   }
-  async function appendToLog(values, saved){
+  async function appendToLog(values, saved, placedAlphabetically, sortFallbackReason){
     var log = await loadLog();
-    log.unshift({ album_name: values.album_name, artist: values.artist, row: rowArray(values), saved: !!saved, ts: Date.now() });
+    log.unshift({
+      album_name: values.album_name,
+      artist: values.artist,
+      row: rowArray(values),
+      saved: !!saved,
+      placedAlphabetically: !!placedAlphabetically,
+      sortFallbackReason: sortFallbackReason || null,
+      ts: Date.now()
+    });
     await saveLog(log);
     renderLog(log);
     return log;
@@ -619,10 +636,17 @@
     }
     els.logActions.style.display = 'block';
     els.logList.innerHTML = log.map(function(item){
+      var badge;
+      if (!item.saved) badge = 'Copied only';
+      else if (item.placedAlphabetically) badge = 'Alphabetized';
+      else badge = 'Appended at bottom';
+      var detail = (item.saved && !item.placedAlphabetically && item.sortFallbackReason)
+        ? '<div style="font-size:11px;color:var(--text-dim);margin-top:2px;">' + escapeHtml(item.sortFallbackReason) + '</div>'
+        : '';
       return '<div class="log-item">' +
         '<div><div class="log-title">' + escapeHtml(item.album_name || 'Untitled') + '</div>' +
-        '<div class="log-artist">' + escapeHtml(item.artist || 'Unknown artist') + '</div></div>' +
-        '<span class="log-badge">' + (item.saved ? 'Saved to sheet' : 'Copied only') + '</span>' +
+        '<div class="log-artist">' + escapeHtml(item.artist || 'Unknown artist') + '</div>' + detail + '</div>' +
+        '<span class="log-badge">' + badge + '</span>' +
         '</div>';
     }).join('');
   }
@@ -696,7 +720,8 @@
 
     var prompt = "You are cataloging a vinyl record from a photo of its front cover for a personal record database. " +
       "Look carefully at the image and identify the release. Respond with ONLY a JSON object (no markdown fences, no preamble) with exactly these keys, all string values (use an empty string if genuinely unknown \u2014 never invent a value): " +
-      "album_name, artist, genre, recording_year, release_year, record_label, catalog_number, format, country, edition_pressing, barcode_upc, media_condition, sleeve_condition, verification_status, notes. " +
+      "album_name, artist, genre, recording_year, release_year, record_label, catalog_number, format, country, edition_pressing, barcode_upc, media_condition, sleeve_condition, verification_status, notes, file_under. " +
+      "'file_under' is the single word or short name this should be alphabetized by in a record collection: for a solo artist performing under their own name, their LAST name (e.g. \"Bowie\" for David Bowie, \"Zappa\" for Frank Zappa); for a band/group, the group's name with a leading \"The\" removed (e.g. \"Beatles\" for The Beatles, \"Pink Floyd\" for Pink Floyd). " +
       "Guidance: 'format' is like 'LP', '2xLP', '12-inch single'. 'genre' can list a few slash-separated subgenres. " +
       "'verification_status' should be 'Photo-confirmed' if the cover clearly shows the title/artist, or 'Needs identification' if the image is too unclear/ambiguous to be confident. " +
       "'media_condition' and 'sleeve_condition' should default to 'Not graded' since condition can't be assessed from a cover photo alone. " +
@@ -763,6 +788,7 @@
       }
     });
     els.formFields.innerHTML = html;
+    els.fileUnderInput.value = values.file_under || '';
     els.saveStatus.innerHTML = '';
     els.formCard.style.display = 'block';
     els.formCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -816,7 +842,7 @@
         var insertIndex;
         try {
           var existingArtists = await getExistingArtists(sheetId, token, info.title);
-          insertIndex = await computeInsertIndex(existingArtists, values.artist, els.anthropicKeyInput.value.trim());
+          insertIndex = await computeInsertIndex(existingArtists, values.artist, els.anthropicKeyInput.value.trim(), els.fileUnderInput.value.trim());
           await insertRowAtPosition(sheetId, token, info.gid, info.title, insertIndex, values);
           placedAlphabetically = true;
         } catch (sortErr) {
@@ -838,12 +864,7 @@
         ? ' \u2014 placed alphabetically by artist.'
         : ' \u2014 added at the bottom instead of alphabetically (' + escapeHtml(sortFallbackReason || 'unknown reason') + ').';
       showStatus(els.saveStatus, 'ok', '\u2713 Added \u201c' + escapeHtml(values.album_name) + '\u201d to your Google Sheet' + placementNote);
-      await appendToLog(values, true);
-      setTimeout(function(){
-        els.formCard.style.display = 'none';
-        els.photoInput.value = '';
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      }, 1400);
+      await appendToLog(values, true, placedAlphabetically, sortFallbackReason);
       return;
     }
 
