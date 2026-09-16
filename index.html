@@ -383,6 +383,17 @@
 (function(){
   "use strict";
 
+  // Claude's replies are supposed to be pure JSON but sometimes include a stray
+  // sentence before/after it despite instructions -- pull out just the {...} part.
+  function extractJson(text){
+    var start = text.indexOf('{');
+    var end = text.lastIndexOf('}');
+    if (start === -1 || end === -1 || end < start) {
+      throw new Error('No JSON object found in response: ' + text.slice(0,150));
+    }
+    return JSON.parse(text.slice(start, end + 1));
+  }
+
   // ---------- field schema, matching the sheet's exact column order ----------
   var FIELDS = [
     { key: "album_name",        label: "Album Name",       section: "Identification" },
@@ -542,8 +553,7 @@
     var data = await resp.json();
     var textBlock = (data.content || []).find(function(b){ return b.type === 'text'; });
     if (!textBlock) throw new Error('No response computing sort position.');
-    var clean = textBlock.text.replace(/```json|```/g, '').trim();
-    var parsed = JSON.parse(clean);
+    var parsed = extractJson(textBlock.text);
     var idx = parseInt(parsed.insert_index, 10);
     if (isNaN(idx) || idx < 0) idx = 0;
     if (idx > existingArtists.length) idx = existingArtists.length;
@@ -756,7 +766,7 @@
       var textBlock = (data.content || []).find(function(b){ return b.type === 'text'; });
       if (!textBlock) throw new Error('No response from identification model.');
       var clean = textBlock.text.replace(/```json|```/g, '').trim();
-      var parsed = JSON.parse(clean);
+      var parsed = extractJson(clean);
       parsed.source_photo = 'Wax Log capture ' + new Date().toISOString().slice(0,16).replace('T',' ');
       renderForm(parsed);
     } catch(err){
