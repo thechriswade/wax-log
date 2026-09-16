@@ -293,6 +293,10 @@
   <details class="card" id="settingsCard">
     <summary>Settings <span class="chev">&rsaquo;</span></summary>
     <div class="settings-body">
+      <label class="field-label">Anthropic API Key</label>
+      <input type="text" id="anthropicKeyInput" placeholder="sk-ant-...">
+      <div class="hint">From console.anthropic.com &rarr; API Keys. Needed for the photo-identification step now that the app runs on its own site. Billed separately from any Claude.ai subscription &mdash; typically a fraction of a cent per photo.</div>
+
       <label class="field-label">Google OAuth Client ID</label>
       <input type="text" id="clientIdInput" placeholder="xxxxxxxx.apps.googleusercontent.com">
       <div class="hint">From Google Cloud Console &rarr; Credentials. Needed once per device/browser.</div>
@@ -331,6 +335,10 @@
       <button class="btn-gold" id="identifyBtn">Identify record</button>
       <button class="btn-ghost" id="retakeBtn" style="margin-top:8px">Retake photo</button>
     </div>
+  </div>
+
+  <div class="card" id="identifyErrorCard" style="display:none">
+    <div class="card-body" id="identifyErrorBody"></div>
   </div>
 
   <div class="card" id="loadingCard" style="display:none">
@@ -400,6 +408,8 @@
     retakeBtn: document.getElementById('retakeBtn'),
     loadingCard: document.getElementById('loadingCard'),
     loadingText: document.getElementById('loadingText'),
+    identifyErrorCard: document.getElementById('identifyErrorCard'),
+    identifyErrorBody: document.getElementById('identifyErrorBody'),
     formCard: document.getElementById('formCard'),
     formFields: document.getElementById('formFields'),
     copyBtn: document.getElementById('copyBtn'),
@@ -411,6 +421,7 @@
     clearLogBtn: document.getElementById('clearLogBtn'),
     clientIdInput: document.getElementById('clientIdInput'),
     sheetIdInput: document.getElementById('sheetIdInput'),
+    anthropicKeyInput: document.getElementById('anthropicKeyInput'),
     saveSettingsBtn: document.getElementById('saveSettingsBtn'),
     testConnectionBtn: document.getElementById('testConnectionBtn'),
     settingsStatus: document.getElementById('settingsStatus'),
@@ -427,11 +438,12 @@
         var s = JSON.parse(raw);
         if (s.clientId) els.clientIdInput.value = s.clientId;
         if (s.sheetId) els.sheetIdInput.value = s.sheetId;
+        if (s.anthropicKey) els.anthropicKeyInput.value = s.anthropicKey;
       }
     } catch(e) {}
   }
   async function saveSettings(){
-    var s = { clientId: els.clientIdInput.value.trim(), sheetId: els.sheetIdInput.value.trim() };
+    var s = { clientId: els.clientIdInput.value.trim(), sheetId: els.sheetIdInput.value.trim(), anthropicKey: els.anthropicKeyInput.value.trim() };
     try {
       localStorage.setItem('wax_log_settings', JSON.stringify(s));
       showStatus(els.settingsStatus, 'ok', 'Saved.');
@@ -491,7 +503,7 @@
     return (data.values || []).map(function(row){ return (row[0] || '').trim(); }).filter(Boolean);
   }
 
-  async function computeInsertIndex(existingArtists, newArtist){
+  async function computeInsertIndex(existingArtists, newArtist, apiKey){
     if (!existingArtists.length) return 0;
     var listText = existingArtists.map(function(a, i){ return (i+1) + '. ' + a; }).join('\n');
     var prompt = "You are alphabetizing a vinyl record collection by artist, in the order rows currently appear in a spreadsheet.\n\n" +
@@ -505,13 +517,19 @@
 
     var resp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
         max_tokens: 200,
         messages: [{ role: "user", content: prompt }]
       })
     });
+    if (!resp.ok) throw new Error('Sort-position request failed (HTTP ' + resp.status + ').');
     var data = await resp.json();
     var textBlock = (data.content || []).find(function(b){ return b.type === 'text'; });
     if (!textBlock) throw new Error('No response computing sort position.');
@@ -662,9 +680,19 @@
   els.identifyBtn.addEventListener('click', identifyRecord);
 
   async function identifyRecord(){
+    els.identifyErrorCard.style.display = 'none';
     els.previewCard.style.display = 'none';
     els.loadingCard.style.display = 'block';
     els.loadingText.textContent = 'Reading the cover art\u2026';
+
+    var apiKey = els.anthropicKeyInput.value.trim();
+    if (!apiKey) {
+      els.loadingCard.style.display = 'none';
+      els.previewCard.style.display = 'block';
+      showStatus(els.identifyErrorBody, 'err', 'No Anthropic API key set. Open Settings, paste your key from console.anthropic.com, and hit Save settings, then try again.');
+      els.identifyErrorCard.style.display = 'block';
+      return;
+    }
 
     var prompt = "You are cataloging a vinyl record from a photo of its front cover for a personal record database. " +
       "Look carefully at the image and identify the release. Respond with ONLY a JSON object (no markdown fences, no preamble) with exactly these keys, all string values (use an empty string if genuinely unknown \u2014 never invent a value): " +
@@ -677,7 +705,12 @@
     try {
       var resp = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true"
+        },
         body: JSON.stringify({
           model: "claude-sonnet-4-6",
           max_tokens: 1000,
@@ -690,6 +723,10 @@
           }]
         })
       });
+      if (!resp.ok) {
+        var bodyText = await resp.text();
+        throw new Error('HTTP ' + resp.status + ': ' + bodyText.slice(0,200));
+      }
       var data = await resp.json();
       var textBlock = (data.content || []).find(function(b){ return b.type === 'text'; });
       if (!textBlock) throw new Error('No response from identification model.');
@@ -700,7 +737,8 @@
     } catch(err){
       els.loadingCard.style.display = 'none';
       els.previewCard.style.display = 'block';
-      showStatus(els.saveStatus, 'err', 'Could not identify the record: ' + escapeHtml(err.message) + '. You can retake the photo or try again.');
+      showStatus(els.identifyErrorBody, 'err', 'Could not identify the record: ' + escapeHtml(err.message) + '. You can retake the photo or try again.');
+      els.identifyErrorCard.style.display = 'block';
     }
   }
 
@@ -776,7 +814,7 @@
         var insertIndex;
         try {
           var existingArtists = await getExistingArtists(sheetId, token, info.title);
-          insertIndex = await computeInsertIndex(existingArtists, values.artist);
+          insertIndex = await computeInsertIndex(existingArtists, values.artist, els.anthropicKeyInput.value.trim());
           await insertRowAtPosition(sheetId, token, info.gid, info.title, insertIndex, values);
         } catch (sortErr) {
           // Alphabetical placement failed for some reason (e.g. couldn't compute position) -- fall back to a plain append so the record isn't lost.
