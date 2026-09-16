@@ -544,7 +544,7 @@
       overrideClause + "\n" +
       "Existing artists, in their current order:\n" + listText + "\n\n" +
       "New artist to insert: \"" + newArtist + "\"\n\n" +
-      "Respond with ONLY a JSON object: {\"insert_index\": N} where N is the 0-based position BEFORE which the new artist should be inserted (0 means before the first artist in the list; " + existingArtists.length + " means after the last). Pick the position that keeps the list correctly alphabetized per the rule above, assuming the existing list is already correctly ordered by that rule.";
+      "Respond with ONLY a JSON object, and absolutely nothing else \u2014 no explanation, no reasoning, no preamble, no restating the task. Your entire reply must be exactly this shape and nothing more: {\"insert_index\": N} where N is the 0-based position BEFORE which the new artist should be inserted (0 means before the first artist in the list; " + existingArtists.length + " means after the last). Pick the position that keeps the list correctly alphabetized per the rule above, assuming the existing list is already correctly ordered by that rule.";
 
     var resp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -556,7 +556,7 @@
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 200,
+        max_tokens: 500,
         messages: [{ role: "user", content: prompt }]
       })
     });
