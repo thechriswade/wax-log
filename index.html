@@ -394,6 +394,17 @@
     return JSON.parse(text.slice(start, end + 1));
   }
 
+  // Reads a fetch Response as text first, so a parse failure can show the actual raw body
+  // instead of an opaque browser error.
+  async function parseJsonResponse(resp){
+    var text = await resp.text();
+    try {
+      return JSON.parse(text);
+    } catch(e) {
+      throw new Error('Response was not valid JSON (' + resp.status + '): ' + text.slice(0,200));
+    }
+  }
+
   // ---------- field schema, matching the sheet's exact column order ----------
   var FIELDS = [
     { key: "album_name",        label: "Album Name",       section: "Identification" },
@@ -501,7 +512,7 @@
     var resp = await fetch('https://sheets.googleapis.com/v4/spreadsheets/' + spreadsheetId + '?fields=sheets.properties',
       { headers: { 'Authorization': 'Bearer ' + token } });
     if (!resp.ok) throw new Error('Could not read spreadsheet metadata (HTTP ' + resp.status + ').');
-    var data = await resp.json();
+    var data = await parseJsonResponse(resp);
     var sheets = data.sheets || [];
     var match = null;
     if (targetGid != null) match = sheets.find(function(sh){ return String(sh.properties.sheetId) === String(targetGid); });
@@ -515,7 +526,7 @@
     var resp = await fetch('https://sheets.googleapis.com/v4/spreadsheets/' + spreadsheetId + '/values/' + range,
       { headers: { 'Authorization': 'Bearer ' + token } });
     if (!resp.ok) throw new Error('Could not read existing artists (HTTP ' + resp.status + ').');
-    var data = await resp.json();
+    var data = await parseJsonResponse(resp);
     return (data.values || []).map(function(row){ return (row[0] || '').trim(); }).filter(Boolean);
   }
 
@@ -550,7 +561,7 @@
       })
     });
     if (!resp.ok) throw new Error('Sort-position request failed (HTTP ' + resp.status + ').');
-    var data = await resp.json();
+    var data = await parseJsonResponse(resp);
     var textBlock = (data.content || []).find(function(b){ return b.type === 'text'; });
     if (!textBlock) throw new Error('No response computing sort position.');
     var parsed = extractJson(textBlock.text);
@@ -762,7 +773,7 @@
         var bodyText = await resp.text();
         throw new Error('HTTP ' + resp.status + ': ' + bodyText.slice(0,200));
       }
-      var data = await resp.json();
+      var data = await parseJsonResponse(resp);
       var textBlock = (data.content || []).find(function(b){ return b.type === 'text'; });
       if (!textBlock) throw new Error('No response from identification model.');
       var clean = textBlock.text.replace(/```json|```/g, '').trim();
