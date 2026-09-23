@@ -544,7 +544,7 @@
       overrideClause + "\n" +
       "Existing artists, in their current order:\n" + listText + "\n\n" +
       "New artist to insert: \"" + newArtist + "\"\n\n" +
-      "Respond with ONLY a JSON object, and absolutely nothing else \u2014 no explanation, no reasoning, no preamble, no restating the task. Your entire reply must be exactly this shape and nothing more: {\"insert_index\": N} where N is the 0-based position BEFORE which the new artist should be inserted (0 means before the first artist in the list; " + existingArtists.length + " means after the last). Pick the position that keeps the list correctly alphabetized per the rule above, assuming the existing list is already correctly ordered by that rule.";
+      "You may think briefly (a sentence or two at most) before answering, but then respond with a JSON object on its own: {\"insert_index\": N} where N is the 0-based position BEFORE which the new artist should be inserted (0 means before the first artist in the list; " + existingArtists.length + " means after the last). Pick the position that keeps the list correctly alphabetized per the rule above, assuming the existing list is already correctly ordered by that rule.";
 
     var resp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -556,10 +556,9 @@
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 500,
+        max_tokens: 1500,
         messages: [
-          { role: "user", content: prompt },
-          { role: "assistant", content: "{" }
+          { role: "user", content: prompt }
         ]
       })
     });
@@ -567,7 +566,7 @@
     var data = await parseJsonResponse(resp);
     var textBlock = (data.content || []).find(function(b){ return b.type === 'text'; });
     if (!textBlock) throw new Error('No response computing sort position.');
-    var parsed = extractJson('{' + textBlock.text);
+    var parsed = extractJson(textBlock.text);
     var idx = parseInt(parsed.insert_index, 10);
     if (isNaN(idx) || idx < 0) idx = 0;
     if (idx > existingArtists.length) idx = existingArtists.length;
@@ -770,8 +769,7 @@
                 { type: "image", source: { type: "base64", media_type: state.imageMediaType, data: state.imageBase64 } },
                 { type: "text", text: prompt }
               ]
-            },
-            { role: "assistant", content: "{" }
+            }
           ]
         })
       });
@@ -783,7 +781,7 @@
       var textBlock = (data.content || []).find(function(b){ return b.type === 'text'; });
       if (!textBlock) throw new Error('No response from identification model.');
       var clean = textBlock.text.replace(/```json|```/g, '').trim();
-      var parsed = extractJson('{' + clean);
+      var parsed = extractJson(clean);
       parsed.source_photo = 'Wax Log capture ' + new Date().toISOString().slice(0,16).replace('T',' ');
       renderForm(parsed);
     } catch(err){
