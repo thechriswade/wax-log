@@ -557,14 +557,17 @@
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
         max_tokens: 500,
-        messages: [{ role: "user", content: prompt }]
+        messages: [
+          { role: "user", content: prompt },
+          { role: "assistant", content: "{" }
+        ]
       })
     });
     if (!resp.ok) throw new Error('Sort-position request failed (HTTP ' + resp.status + ').');
     var data = await parseJsonResponse(resp);
     var textBlock = (data.content || []).find(function(b){ return b.type === 'text'; });
     if (!textBlock) throw new Error('No response computing sort position.');
-    var parsed = extractJson(textBlock.text);
+    var parsed = extractJson('{' + textBlock.text);
     var idx = parseInt(parsed.insert_index, 10);
     if (isNaN(idx) || idx < 0) idx = 0;
     if (idx > existingArtists.length) idx = existingArtists.length;
@@ -760,13 +763,16 @@
         body: JSON.stringify({
           model: "claude-sonnet-4-6",
           max_tokens: 1000,
-          messages: [{
-            role: "user",
-            content: [
-              { type: "image", source: { type: "base64", media_type: state.imageMediaType, data: state.imageBase64 } },
-              { type: "text", text: prompt }
-            ]
-          }]
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "image", source: { type: "base64", media_type: state.imageMediaType, data: state.imageBase64 } },
+                { type: "text", text: prompt }
+              ]
+            },
+            { role: "assistant", content: "{" }
+          ]
         })
       });
       if (!resp.ok) {
@@ -777,7 +783,7 @@
       var textBlock = (data.content || []).find(function(b){ return b.type === 'text'; });
       if (!textBlock) throw new Error('No response from identification model.');
       var clean = textBlock.text.replace(/```json|```/g, '').trim();
-      var parsed = extractJson(clean);
+      var parsed = extractJson('{' + clean);
       parsed.source_photo = 'Wax Log capture ' + new Date().toISOString().slice(0,16).replace('T',' ');
       renderForm(parsed);
     } catch(err){
