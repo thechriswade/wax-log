@@ -359,7 +359,8 @@
 
       <div class="field-grid" id="formFields"></div>
 
-      <button class="btn-primary" id="copyBtn" style="margin-top:14px">Copy row for the sheet</button>
+      <button class="btn-primary" id="copyBtn" style="margin-top:14px">Auto add to sheet</button>
+      <button class="btn-gold" id="manualCopyBtn" style="margin-top:8px">Copy row for the sheet</button>
       <button class="btn-ghost" id="doneBtn" style="margin-top:8px">Done &mdash; add another</button>
       <div id="saveStatus"></div>
     </div>
@@ -440,6 +441,7 @@
     formFields: document.getElementById('formFields'),
     fileUnderInput: document.getElementById('fileUnderInput'),
     copyBtn: document.getElementById('copyBtn'),
+    manualCopyBtn: document.getElementById('manualCopyBtn'),
     doneBtn: document.getElementById('doneBtn'),
     saveStatus: document.getElementById('saveStatus'),
     logList: document.getElementById('logList'),
@@ -882,7 +884,7 @@
     }
 
     els.copyBtn.disabled = false;
-    els.copyBtn.textContent = 'Copy row for the sheet';
+    els.copyBtn.textContent = 'Auto add to sheet';
 
     if (savedToSheet) {
       var placementNote = placedAlphabetically
@@ -910,6 +912,24 @@
       els.photoInput.value = '';
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }, 2200);
+  });
+
+  els.manualCopyBtn.addEventListener('click', async function(){
+    var values = collectFormValues();
+    if (!values.album_name) {
+      showStatus(els.saveStatus, 'err', 'Album Name is required before copying.');
+      return;
+    }
+    var text = tsvRow(values);
+    var ok = await copyText(text);
+    await appendToLog(values, false);
+    if (ok) {
+      showStatus(els.saveStatus, 'ok',
+        '\u2713 Copied. Click the first empty cell in your sheet\u2019s next row and paste (Ctrl/Cmd+V).');
+    } else {
+      showStatus(els.saveStatus, 'err',
+        'Clipboard copy was blocked. Select and copy this manually:<pre class="row-copy">' + escapeHtml(text) + '</pre>');
+    }
   });
 
   // ---------- settings actions ----------
